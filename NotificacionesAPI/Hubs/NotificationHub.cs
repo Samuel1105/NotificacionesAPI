@@ -1,20 +1,16 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using NotificacionesAPI.Services;
+using System.Security.Claims;
 
 namespace NotificacionesAPI.Hubs
 {
-    
+    [Authorize]
     public class NotificationHub : Hub
     {
-        private readonly IApiKeyValidationService _apiKeyValidationService;
         private readonly ILogger<NotificationHub> _logger;
 
-        public NotificationHub(
-            IApiKeyValidationService apiKeyValidationService,
-            ILogger<NotificationHub> logger)
+        public NotificationHub(ILogger<NotificationHub> logger)
         {
-            _apiKeyValidationService = apiKeyValidationService;
             _logger = logger;
         }
 
@@ -22,66 +18,73 @@ namespace NotificacionesAPI.Hubs
         {
             try
             {
-                var httpContext = Context.GetHttpContext();
-                if (httpContext == null)
+                var companyId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(companyId))
                 {
-                    _logger.LogWarning("HttpContext not available");
-                    Context.Abort();
-                    return;
-                }
-
-                var apiKey = httpContext.Request.Headers["X-API-Key"].ToString();
-                if (string.IsNullOrEmpty(apiKey))
-                {
-                    _logger.LogWarning("API Key not provided");
-                    Context.Abort();
-                    return;
-                }
-
-                var origin = httpContext.Request.Headers["Origin"].ToString();
-                if (!_apiKeyValidationService.ValidateApiKey(apiKey, origin, out string companyId))
-                {
-                    _logger.LogWarning($"Invalid API Key: {apiKey} from origin: {origin}");
+                    _logger.LogWarning("CompanyId no encontrado en el token");
                     Context.Abort();
                     return;
                 }
 
                 await Groups.AddToGroupAsync(Context.ConnectionId, companyId);
-                _logger.LogInformation($"Client connected to group: {companyId}");
-
+                _logger.LogInformation($"Cliente conectado al grupo: {companyId}");
                 await base.OnConnectedAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in OnConnectedAsync");
+                _logger.LogError(ex, "Error en OnConnectedAsync");
                 throw;
             }
         }
 
         public override async Task OnDisconnectedAsync(Exception exception)
         {
-            var httpContext = Context.GetHttpContext();
-            var companyId = httpContext.Items["CompanyId"]?.ToString();
-
+            var companyId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (!string.IsNullOrEmpty(companyId))
             {
                 await Groups.RemoveFromGroupAsync(Context.ConnectionId, companyId);
-                _logger.LogInformation($"Client disconnected from group: {companyId}");
+                _logger.LogInformation($"Cliente desconectado del grupo: {companyId}");
             }
-
             await base.OnDisconnectedAsync(exception);
         }
 
         public async Task SendNotification(string message)
         {
-            var httpContext = Context.GetHttpContext();
-            var companyId = httpContext.Items["CompanyId"]?.ToString();
-
-            if (!string.IsNullOrEmpty(companyId))
+            var companyId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(companyId))
             {
-                await Clients.Group(companyId).SendAsync("ReceiveNotification", message);
-                _logger.LogInformation($"Message sent to group: {companyId}");
+                throw new HubException("No autorizado");
             }
+
+            await Clients.Group(companyId).SendAsync("ReceiveNotification", new
+            {
+                message = message,
+                timestamp = DateTime.UtcNow,
+                companyId = companyId
+            });
+
+            _logger.LogInformation($"Mensaje enviado al grupo: {companyId}");
+        }
+
+        // Método para enviar notificación a una empresa específica (solo para uso interno/admin)
+        public async Task SendNotificationToCompany(string targetCompanyId, string message)
+        {
+            var senderCompanyId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(senderCompanyId))
+            {
+                throw new HubException("No autorizado");
+            }
+
+            // Aquí podrías agregar lógica adicional para verificar permisos
+
+            await Clients.Group(targetCompanyId).SendAsync("ReceiveNotification", new
+            {
+                message = message,
+                timestamp = DateTime.UtcNow,
+                senderCompanyId = senderCompanyId
+            });
+
+            _logger.LogInformation($"Mensaje enviado de {senderCompanyId} a {targetCompanyId}");
         }
     }
 }
