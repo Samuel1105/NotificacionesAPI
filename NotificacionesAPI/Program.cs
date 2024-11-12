@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using NotificacionesAPI.Hubs;
 using NotificacionesAPI.Services;
+using NotificacionesAPI.Data;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Servicios base
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddDbContext<NotificationDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Configuración de Swagger con JWT
 builder.Services.AddSwaggerGen(c =>
