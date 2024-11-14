@@ -36,4 +36,6 @@
         public string Message { get; set; }
         public string[] TargetCompanyIds { get; set; }
     }
+
+
 }
