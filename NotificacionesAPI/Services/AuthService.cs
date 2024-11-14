@@ -47,6 +47,8 @@ namespace NotificacionesAPI.Services
         {
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JwtConfig:Secret"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var expirationHoursString = _configuration["JwtConfig:TokenExpirationInHours"];
+            var expirationHours = double.TryParse(expirationHoursString, out double result) ? result : 1; // Valor predeterminado de 1 hora
             var expiration = DateTime.UtcNow.AddHours(1);
 
             var claims = new[]

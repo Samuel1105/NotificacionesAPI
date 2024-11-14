@@ -29,6 +29,40 @@ namespace NotificacionesAPI.Controllers
             _logger = logger;
         }
 
+        //[HttpPost("send")]
+        //public async Task<IActionResult> SendNotification([FromBody] NotificationModel notification)
+        //{
+        //    var companyId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        //    if (string.IsNullOrEmpty(companyId))
+        //    {
+        //        return Unauthorized();
+        //    }
+
+        //    try
+        //    {
+        //        notification.UserId = companyId;
+        //        notification.CreatedAt = DateTime.UtcNow;
+        //        _context.Notifications.Add(notification);
+        //        await _context.SaveChangesAsync();
+
+        //        // Enviar la notificación a través de SignalR
+        //        await _hubContext.Clients.Group(companyId).SendAsync("ReceiveNotification", new
+        //        {
+        //            message = notification.Message,
+        //            timestamp = notification.CreatedAt,
+        //            companyId = companyId
+        //        });
+
+        //        _logger.LogInformation($"Notificación enviada y guardada para la empresa: {companyId}");
+        //        return Ok(new { message = "Notificación enviada y guardada exitosamente" });
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, $"Error al enviar y guardar notificación para la empresa {companyId}");
+        //        return StatusCode(500, new { message = "Error al enviar la notificación", error = ex.Message });
+        //    }
+        //}
+
         [HttpPost("send")]
         public async Task<IActionResult> SendNotification([FromBody] NotificationModel notification)
         {
@@ -41,16 +75,21 @@ namespace NotificacionesAPI.Controllers
             try
             {
                 notification.UserId = companyId;
-                notification.CreatedAt = DateTime.UtcNow;
+                notification.CreatedAt = DateTime.Now;
                 _context.Notifications.Add(notification);
                 await _context.SaveChangesAsync();
 
-                // Enviar la notificación a través de SignalR
+                // Ahora `notification.Id` contiene el ID generado por la base de datos
+                var notificationId = notification.Id;
+
+                // Enviar la notificación a través de SignalR incluyendo el ID
                 await _hubContext.Clients.Group(companyId).SendAsync("ReceiveNotification", new
                 {
+                    id = notificationId, // Incluir el ID generado
                     message = notification.Message,
                     timestamp = notification.CreatedAt,
-                    companyId = companyId
+                    companyId = companyId,
+                    type = notification.Tipo
                 });
 
                 _logger.LogInformation($"Notificación enviada y guardada para la empresa: {companyId}");
@@ -63,13 +102,11 @@ namespace NotificacionesAPI.Controllers
             }
         }
 
+
         [HttpGet("GetNotifications")]
         public async Task<IActionResult> GetNotifications(string userId, bool? isRead = null)
         {
-            // Validar que el usuario autenticado tiene acceso a las notificaciones del `userId` solicitado
-            
-
-            // Consulta de notificaciones filtradas por `userId` y, opcionalmente, por estado de lectura
+           
             var notificationsQuery = _context.Notifications
                 .Where(n => n.UserId == userId);
 
@@ -96,7 +133,7 @@ namespace NotificacionesAPI.Controllers
             }
 
             var notification = await _context.Notifications
-                .FirstOrDefaultAsync(n => n.Id == id && (n.UserId == companyId || n.UserId == "Global"));
+                .FirstOrDefaultAsync(n => n.Id == id && n.UserId == companyId);
 
             if (notification == null)
             {
@@ -106,14 +143,15 @@ namespace NotificacionesAPI.Controllers
             notification.IsRead = true;
             await _context.SaveChangesAsync();
 
-            // Notificar al cliente que la notificación ha sido marcada como leída
-            await _hubContext.Clients.Group(companyId).SendAsync("NotificationMarkedAsRead", new
+            // Notificar a todos los clientes del grupo
+            await _hubContext.Clients.Group(companyId).SendAsync("NotificationUpdated", new
             {
-                notificationId = notification.Id,
+                id = notification.Id,
                 isRead = notification.IsRead
             });
 
             return Ok(new { message = "Notificación marcada como leída." });
         }
+
     }
 }
